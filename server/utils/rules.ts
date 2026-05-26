@@ -249,10 +249,12 @@ const EXPERIENCES: ExperienceTemplate[] = [
 export function buildRecommendation(
   age: number,
   traits: string[],
+  memo = '',
 ): RuleResult {
   const selected = (traits || []).filter((t): t is TraitKey =>
     Object.values(T).includes(t as TraitKey),
   )
+  const memoText = (memo || '').trim()
 
   // 점수 매기기
   const scored = EXPERIENCES.map((e) => {
@@ -262,6 +264,19 @@ export function buildRecommendation(
     let score = matchCount
     if (inAge) score += 0.5
     else if (matchCount > 0) score = Math.max(score - 0.5, 0.1)
+
+    // 메모(한 줄 입력)에 체험 키워드가 있으면 가산
+    if (memoText) {
+      const nameHit = e.name.split('/')[0].trim()
+      if (memoText.includes(nameHit)) score += 1.5
+      for (const kw of e.search_keywords) {
+        if (memoText.includes(kw) || memoText.includes(kw.replace(/\s/g, ''))) {
+          score += 1
+          break
+        }
+      }
+    }
+
     return { exp: e, score, inAge }
   })
 

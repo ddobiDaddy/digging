@@ -28,6 +28,30 @@
         <p class="tagline">아이의 재미 안에서 관심사와 가능성을 찾아요</p>
       </header>
 
+      <!-- 한 줄 입력 (메인) -->
+      <div class="card card-highlight">
+        <label class="section-label">한 줄로 알려주세요</label>
+        <textarea
+          v-model="quickInput"
+          class="textarea quick-input"
+          rows="3"
+          placeholder="예: 7살 아들인데 레고를 4시간씩 만들고, 서울 마포구에 살아요"
+          @input="onQuickInputChange"
+        />
+        <div v-if="parsePreview.length" class="parse-preview">
+          <span class="parse-preview-label">인식됨</span>
+          <span v-for="tag in parsePreview" :key="tag" class="parse-tag">{{ tag }}</span>
+        </div>
+        <button type="button" class="apply-btn" @click="applyQuickInput">
+          입력 내용 폼에 반영하기
+        </button>
+      </div>
+
+      <button type="button" class="toggle-advanced" @click="showAdvanced = !showAdvanced">
+        {{ showAdvanced ? '▲ 간단히 보기' : '▼ 나이·동네·성향 직접 고르기' }}
+      </button>
+
+      <div v-show="showAdvanced" class="advanced-block">
       <div class="card">
         <label class="section-label">
           나이 <span class="optional">(선택 - <strong class="age-now">{{ form.age }}세</strong>)</span>
@@ -49,6 +73,17 @@
         <label class="section-label">
           우리 동네 <span class="optional">(선택 - 입력하면 가까운 실제 장소를 추천해요)</span>
         </label>
+
+        <button
+          type="button"
+          class="location-btn"
+          :disabled="locating"
+          @click="detectLocation"
+        >
+          <span v-if="locating">위치 확인 중...</span>
+          <span v-else>📍 내 위치로 동네 찾기</span>
+        </button>
+        <p v-if="locationMessage" class="location-msg">{{ locationMessage }}</p>
 
         <div class="region-label">시/도</div>
         <div class="region-chips">
@@ -119,6 +154,7 @@
           placeholder="예: 레고를 4시간씩 혼자 조립하고, 설명서 없이도 잘 만들어요."
         />
       </div>
+      </div>
 
       <p v-if="error" class="error-msg">{{ error }}</p>
 
@@ -129,122 +165,49 @@
     </div>
 
     <!-- RESULT -->
-    <div v-if="step === 'result'" class="container">
-      <header class="result-header">
-        <div>
-          <h1 class="result-name">{{ form.age }}세 아이의 디깅 결과</h1>
-          <p class="result-summary">{{ result.summary }}</p>
-        </div>
-        <button class="reset-btn" @click="reset">← 다시 분석</button>
-      </header>
+    <div v-if="step === 'result' && result" class="container">
+      <!-- 공유 / 다시 분석 액션 바 -->
+      <div class="action-bar">
+        <button class="action-btn share-btn" :disabled="sharing" @click="shareResult">
+          <span v-if="sharing">공유 준비 중...</span>
+          <span v-else>📤 친구한테 공유</span>
+        </button>
+        <button class="action-btn" @click="reset">↻ 다시 분석</button>
+      </div>
 
-      <section class="result-section">
-        <h2 class="result-section-title">⭐ 발견된 강점</h2>
-        <div v-for="s in result.strengths" :key="s.name" class="strength-card">
-          <div class="strength-header">
-            <span class="strength-icon">{{ s.icon }}</span>
-            <span class="strength-name">{{ s.name }}</span>
-          </div>
-          <p class="strength-desc">{{ s.desc }}</p>
-        </div>
-      </section>
+      <p v-if="shareMessage" class="share-msg">{{ shareMessage }}</p>
 
-      <section class="result-section">
-        <h2 class="result-section-title">📍 추천 체험</h2>
-        <div v-for="e in result.experiences" :key="e.name" class="exp-card">
-          <div class="exp-header">
-            <span class="exp-name">{{ e.name }}</span>
-            <span class="exp-badge" :class="`cat-${categoryClass(e.category)}`">{{ e.category }}</span>
-          </div>
-          <p class="exp-desc">{{ e.desc }}</p>
-          <div class="exp-meta">
-            <span class="exp-age">🗓 {{ e.age_fit }}</span>
-          </div>
-          <div class="exp-why">🔗 {{ e.why }}</div>
-
-          <!-- 실제 장소 카드들 -->
-          <div v-if="e.places && e.places.length > 0" class="places-section">
-            <div class="places-title">
-              📍 {{ combinedRegion ? `${combinedRegion} 추천 장소` : '추천 장소' }}
-              <span class="places-count">{{ e.places.length }}곳</span>
-            </div>
-            <div
-              v-for="(p, i) in (expanded[e.name] ? e.places : e.places.slice(0, 2))"
-              :key="(p.placeId || p.name) + i"
-              class="place-card"
-            >
-              <div class="place-header">
-                <span class="place-name">{{ p.name }}</span>
-                <span class="place-cat">{{ p.category }}</span>
-              </div>
-              <p v-if="p.roadAddress || p.address" class="place-addr">📌 {{ p.roadAddress || p.address }}</p>
-              <p v-if="p.telephone" class="place-tel">📞 {{ p.telephone }}</p>
-              <div class="place-actions">
-                <a class="place-btn primary" :href="mapUrl(p)" target="_blank" rel="noopener">🗺 지도보기</a>
-                <a class="place-btn" :href="directionsUrl(p)" target="_blank" rel="noopener">🧭 길찾기</a>
-                <a v-if="p.telephone" class="place-btn" :href="`tel:${p.telephone}`">📞 전화</a>
-              </div>
-            </div>
-            <button
-              v-if="e.places.length > 2"
-              class="more-btn"
-              @click="expanded[e.name] = !expanded[e.name]"
-            >
-              {{ expanded[e.name] ? '▲ 접기' : `▼ ${e.places.length - 2}곳 더 보기` }}
-            </button>
-          </div>
-
-          <!-- 장소가 없을 때 -->
-          <div v-else class="places-empty">
-            <p class="places-empty-text">
-              {{ combinedRegion ? `'${combinedRegion}' 근처에서 검색된 장소가 없어요.` : '실제 장소를 보려면 폼에서 동네를 선택해주세요.' }}
-            </p>
-            <a class="place-btn" :href="genericSearchUrl(e)" target="_blank" rel="noopener">
-              🔍 네이버 지도에서 직접 검색
-            </a>
-          </div>
-        </div>
-      </section>
+      <ResultView :result="result" :age="form.age" :region="combinedRegion" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-interface Place {
-  name: string
-  category: string
-  address: string
-  roadAddress: string
-  telephone: string
-  lng: number | null
-  lat: number | null
-  placeId: string | null
-  link: string
-}
-
-interface Experience {
-  name: string
-  category: string
-  desc: string
-  why: string
-  age_fit: string
-  search_keywords?: string[]
-  places?: Place[]
-}
+import { SIDO_LIST, DISTRICTS, NEIGHBORHOODS, type Sido } from '~/utils/regions'
+import { parseNaturalInput, mapGeocodeToRegion } from '~/utils/parse-input'
 
 interface AnalyzeResult {
   summary: string
   strengths: { name: string; desc: string; icon: string }[]
-  experiences: Experience[]
+  experiences: any[]
 }
 
+const config = useRuntimeConfig()
 const step = ref<'form' | 'result'>('form')
 const loading = ref(false)
 const error = ref('')
 const result = ref<AnalyzeResult | null>(null)
-const expanded = reactive<Record<string, boolean>>({})
+const sharing = ref(false)
+const shareMessage = ref('')
+const shareId = ref('')
 
-import { SIDO_LIST, DISTRICTS, NEIGHBORHOODS, type Sido } from '~/utils/regions'
+const quickInput = ref('')
+const parsePreview = ref<string[]>([])
+const showAdvanced = ref(false)
+const locating = ref(false)
+const locationMessage = ref('')
+
+let quickParseTimer: ReturnType<typeof setTimeout> | null = null
 
 const form = reactive({
   age: 7,
@@ -316,9 +279,97 @@ function toggleTrait(value: string) {
   else form.traits.push(value)
 }
 
+function onQuickInputChange() {
+  if (quickParseTimer) clearTimeout(quickParseTimer)
+  quickParseTimer = setTimeout(() => {
+    const parsed = parseNaturalInput(quickInput.value)
+    parsePreview.value = parsed.recognized
+  }, 400)
+}
+
+function applyParsedToForm(parsed: ReturnType<typeof parseNaturalInput>) {
+  if (parsed.age) form.age = parsed.age
+  form.regionSido = parsed.regionSido
+  form.regionDistrict = parsed.regionDistrict
+  form.regionNeighborhood = parsed.regionNeighborhood
+  if (parsed.traits.length) form.traits = [...parsed.traits]
+  if (parsed.memo) form.memo = parsed.memo
+  parsePreview.value = parsed.recognized
+}
+
+function applyQuickInput() {
+  const text = quickInput.value.trim()
+  if (!text) {
+    error.value = '한 줄이라도 입력해주세요.'
+    return
+  }
+  error.value = ''
+  applyParsedToForm(parseNaturalInput(text))
+  if (!showAdvanced.value && parsePreview.value.length) {
+    showAdvanced.value = true
+  }
+}
+
+async function detectLocation() {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    locationMessage.value = '이 브라우저에서는 위치 기능을 쓸 수 없어요.'
+    return
+  }
+  locating.value = true
+  locationMessage.value = ''
+  error.value = ''
+
+  try {
+    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 60000,
+      })
+    })
+
+    const geo = await $fetch<{
+      sido: string
+      sigungu: string
+      dong: string
+      displayName: string
+    }>('/api/reverse-geocode', {
+      query: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+    })
+
+    const mapped = mapGeocodeToRegion({
+      sido: geo.sido,
+      sigungu: geo.sigungu,
+      dong: geo.dong,
+    })
+
+    form.regionSido = mapped.regionSido
+    form.regionDistrict = mapped.regionDistrict
+    form.regionNeighborhood = mapped.regionNeighborhood
+    parsePreview.value = mapped.recognized
+    locationMessage.value = combinedRegion.value
+      ? `✓ ${combinedRegion.value} 으로 설정했어요`
+      : '✓ 위치를 찾았어요. 구/동을 직접 선택해주세요.'
+    showAdvanced.value = true
+  } catch (e: any) {
+    if (e?.code === 1) {
+      locationMessage.value = '위치 권한이 필요해요. 브라우저 설정에서 허용해주세요.'
+    } else {
+      locationMessage.value = e?.data?.message || e?.message || '위치를 가져오지 못했어요.'
+    }
+  } finally {
+    locating.value = false
+  }
+}
+
 async function analyze() {
-  if (form.traits.length === 0 && !form.memo) {
-    error.value = '성향을 하나 이상 선택하거나 설명을 입력해주세요.'
+  // 한 줄만 입력했을 때도 분석 가능하도록 먼저 반영
+  if (quickInput.value.trim()) {
+    applyParsedToForm(parseNaturalInput(quickInput.value.trim()))
+  }
+
+  if (form.traits.length === 0 && !form.memo.trim()) {
+    error.value = '한 줄로 설명하거나, 성향·메모를 입력해주세요.'
     return
   }
   error.value = ''
@@ -334,8 +385,11 @@ async function analyze() {
       },
     })
     result.value = data
-    Object.keys(expanded).forEach((k) => delete expanded[k])
+    shareMessage.value = ''
+    shareId.value = ''
     step.value = 'result'
+    // 분석 직후 백그라운드로 공유 ID 발급 → 공유 버튼이 즉시 동작
+    saveShareLink(data)
   } catch (e: any) {
     error.value = '분석 중 오류가 발생했어요. 다시 시도해주세요.'
   } finally {
@@ -346,50 +400,67 @@ async function analyze() {
 function reset() {
   step.value = 'form'
   result.value = null
+  shareId.value = ''
+  shareMessage.value = ''
+  quickInput.value = ''
+  parsePreview.value = []
+  locationMessage.value = ''
+  showAdvanced.value = false
 }
 
-function categoryClass(cat: string): string {
-  const map: Record<string, string> = {
-    예술: 'art',
-    과학: 'science',
-    스포츠: 'sports',
-    사회: 'social',
-    자연: 'nature',
-    기술: 'tech',
-    음악: 'music',
-    문학: 'literature',
-  }
-  return map[cat] || 'default'
+function sharePageUrl(id: string): string {
+  const base = (config.public.siteUrl as string).replace(/\/$/, '')
+  return `${base}/r/${id}`
 }
 
-// --- 네이버 지도 URL 조립 ---
-// 모든 외부 링크는 무조건 네이버 지도(map.naver.com) 안으로만 보냅니다.
-function mapUrl(p: Place): string {
-  if (p.placeId && p.lng !== null && p.lat !== null) {
-    return `https://map.naver.com/p/entry/place/${p.placeId}?c=${p.lng},${p.lat},17,0,0,0,dh&placePath=%2Fhome`
+async function saveShareLink(data: AnalyzeResult) {
+  try {
+    const res = await $fetch<{ id: string }>('/api/share', {
+      method: 'POST',
+      body: {
+        age: form.age,
+        region: combinedRegion.value,
+        result: data,
+      },
+    })
+    shareId.value = res.id
+  } catch {
+    // 공유 저장 실패해도 결과 화면은 그대로 표시
   }
-  if (p.placeId) {
-    return `https://map.naver.com/p/entry/place/${p.placeId}?placePath=%2Fhome`
-  }
-  if (p.lng !== null && p.lat !== null) {
-    return `https://map.naver.com/p/search/${encodeURIComponent(p.name)}?c=${p.lng},${p.lat},17,0,0,0,dh`
-  }
-  return `https://map.naver.com/p/search/${encodeURIComponent(p.name + ' ' + (p.roadAddress || p.address))}`
 }
 
-function directionsUrl(p: Place): string {
-  if (p.placeId && p.lng !== null && p.lat !== null) {
-    return `https://map.naver.com/p/directions/-/-/${p.lng},${p.lat},${encodeURIComponent(p.name)},${p.placeId},PLACE_POI/-/transit`
-  }
-  if (p.lng !== null && p.lat !== null) {
-    return `https://map.naver.com/p/directions/-/-/${p.lng},${p.lat},${encodeURIComponent(p.name)},,ADDRESS_POI/-/transit`
-  }
-  return `https://map.naver.com/p/search/${encodeURIComponent(p.name + ' ' + (p.roadAddress || p.address))}`
-}
+async function shareResult() {
+  if (!result.value) return
+  sharing.value = true
+  shareMessage.value = ''
+  try {
+    if (!shareId.value) {
+      await saveShareLink(result.value)
+    }
+    if (!shareId.value) {
+      shareMessage.value = '공유 링크를 만들지 못했어요. 잠시 후 다시 시도해주세요.'
+      return
+    }
 
-function genericSearchUrl(e: Experience): string {
-  const q = `${combinedRegion.value ? combinedRegion.value + ' ' : ''}${e.search_keywords?.[0] || e.name}`
-  return `https://map.naver.com/p/search/${encodeURIComponent(q)}`
+    const url = sharePageUrl(shareId.value)
+    const title = `디깅 - ${form.age}세 아이의 체험 추천`
+    const text = result.value.summary
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      await navigator.share({ title, text, url })
+      shareMessage.value = ''
+    } else if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url)
+      shareMessage.value = '✓ 링크가 복사됐어요. 카톡에 붙여넣어 공유해보세요!'
+    } else {
+      shareMessage.value = url
+    }
+  } catch (e: any) {
+    if (e?.name === 'AbortError') return
+    shareMessage.value = '공유에 실패했어요. 다시 시도해주세요.'
+  } finally {
+    sharing.value = false
+  }
 }
 </script>
 
@@ -637,162 +708,135 @@ function genericSearchUrl(e: Experience): string {
 .submit-btn:hover:not(:disabled) { background: #854F0B; }
 .submit-btn:disabled { background: #ccc; color: #fff; cursor: not-allowed; }
 
-/* ---------- Result ---------- */
-.result-header {
+/* ---------- Quick input ---------- */
+.card-highlight {
+  border-color: #FAC775;
+  background: linear-gradient(180deg, #FFFCF5 0%, #fff 100%);
+}
+.quick-input {
+  min-height: 72px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.parse-preview {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1.5rem;
-}
-.result-name { font-size: 20px; font-weight: 600; color: #1a1a1a; }
-.result-summary { font-size: 14px; color: #666; margin-top: 4px; }
-.reset-btn {
-  font-size: 13px;
-  color: #666;
-  background: none;
-  border: 1px solid #E8E8E4;
-  border-radius: 8px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-family: inherit;
-  white-space: nowrap;
-}
-
-.result-section { margin-bottom: 2rem; }
-.result-section-title { font-size: 16px; font-weight: 600; color: #1a1a1a; margin-bottom: 12px; }
-
-.strength-card {
-  background: #FAEEDA;
-  border: 1px solid #FAC775;
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 8px;
-}
-.strength-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.strength-icon { font-size: 18px; }
-.strength-name { font-size: 14px; font-weight: 600; color: #633806; }
-.strength-desc { font-size: 13px; color: #854F0B; line-height: 1.6; }
-
-/* ---------- Experience card ---------- */
-.exp-card {
-  background: #fff;
-  border: 1px solid #E8E8E4;
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 12px;
-}
-.exp-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
-.exp-name { font-size: 16px; font-weight: 600; color: #1a1a1a; }
-.exp-badge {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 99px;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-
-.cat-art       { background: #FCE4D9; color: #B8521A; border-color: #F4B58F; }
-.cat-science   { background: #DDE9FA; color: #1F4F94; border-color: #A8C2EA; }
-.cat-sports    { background: #FDE3E5; color: #B11C2A; border-color: #F2A8AD; }
-.cat-social    { background: #FFF0CC; color: #92651A; border-color: #F2D58A; }
-.cat-nature    { background: #E1F5EE; color: #0F6E56; border-color: #A0DBC4; }
-.cat-tech      { background: #E5E0F7; color: #4B2F95; border-color: #BBA9E3; }
-.cat-music     { background: #FFDCEC; color: #A03174; border-color: #F2A6CE; }
-.cat-literature{ background: #F1ECE2; color: #6E5A2B; border-color: #D5C49B; }
-.cat-default   { background: #EAF3DE; color: #3B6D11; border-color: #C0DD97; }
-
-.exp-desc { font-size: 13px; color: #555; line-height: 1.6; margin-bottom: 8px; }
-.exp-meta { display: flex; gap: 12px; margin-bottom: 8px; }
-.exp-age { font-size: 12px; color: #888; }
-.exp-why { font-size: 12px; color: #0F6E56; background: #E1F5EE; border-radius: 6px; padding: 8px 10px; line-height: 1.5; }
-
-/* ---------- Places ---------- */
-.places-section {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px dashed #E8E8E4;
-}
-.places-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #555;
-  margin-bottom: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.places-count {
-  font-size: 11px;
-  font-weight: 500;
-  color: #888;
-  background: #F0EFEB;
-  padding: 2px 8px;
-  border-radius: 99px;
-}
-
-.place-card {
-  background: #FAFAF8;
-  border: 1px solid #ECEBE6;
-  border-radius: 10px;
-  padding: 12px;
-  margin-bottom: 8px;
-}
-.place-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
-.place-name { font-size: 14px; font-weight: 600; color: #1a1a1a; line-height: 1.4; }
-.place-cat { font-size: 10px; color: #888; white-space: nowrap; padding-top: 2px; }
-.place-addr { font-size: 12px; color: #666; margin-bottom: 4px; line-height: 1.5; }
-.place-tel { font-size: 12px; color: #666; margin-bottom: 8px; }
-
-.place-actions {
-  display: flex;
-  gap: 6px;
   flex-wrap: wrap;
-  margin-top: 8px;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0;
 }
-.place-btn {
-  flex: 1;
-  min-width: 80px;
-  text-align: center;
+.parse-preview-label {
+  font-size: 11px;
+  color: #888;
+  font-weight: 600;
+}
+.parse-tag {
   font-size: 12px;
-  padding: 7px 10px;
-  border-radius: 8px;
-  background: #fff;
-  color: #555;
-  border: 1px solid #E0DFD9;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: #E1F5EE;
+  color: #0F6E56;
+  border: 1px solid #A0DBC4;
 }
-.place-btn:hover { border-color: #BA7517; color: #854F0B; background: #FFF9F0; }
-.place-btn.primary {
-  background: #03C75A;
-  color: #fff;
-  border-color: #03C75A;
-}
-.place-btn.primary:hover { background: #02A94D; border-color: #02A94D; color: #fff; }
-
-.more-btn {
+.apply-btn {
   width: 100%;
-  font-size: 12px;
-  color: #666;
-  background: #fff;
-  border: 1px dashed #D8D7D1;
+  padding: 10px;
+  border: 1px dashed #BA7517;
   border-radius: 8px;
-  padding: 8px;
+  background: #FFF9F0;
+  color: #854F0B;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  margin-top: 4px;
   font-family: inherit;
 }
-.more-btn:hover { background: #FAFAF8; color: #854F0B; border-color: #BA7517; }
+.apply-btn:hover { background: #FAEEDA; }
 
-.places-empty {
-  margin-top: 14px;
-  padding: 12px;
-  background: #FAFAF8;
-  border: 1px dashed #E0DFD9;
-  border-radius: 10px;
+.toggle-advanced {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 1rem;
+  border: none;
+  background: transparent;
+  color: #888;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
   text-align: center;
 }
-.places-empty-text { font-size: 12px; color: #888; margin-bottom: 8px; line-height: 1.5; }
+.toggle-advanced:hover { color: #854F0B; }
+
+.advanced-block { margin-bottom: 0; }
+
+.location-btn {
+  width: 100%;
+  padding: 11px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border: 1px solid #03C75A;
+  background: #fff;
+  color: #028A42;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.location-btn:hover:not(:disabled) {
+  background: #E8F9EF;
+}
+.location-btn:disabled { opacity: 0.6; cursor: wait; }
+.location-msg {
+  font-size: 12px;
+  color: #0F6E56;
+  margin: -6px 0 12px;
+  line-height: 1.5;
+}
+
+/* ---------- Share action bar ---------- */
+.action-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 1rem;
+}
+.action-btn {
+  flex: 1;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1px solid #E8E8E4;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  color: #555;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.action-btn:hover:not(:disabled) {
+  border-color: #BA7517;
+  color: #854F0B;
+  background: #FFF9F0;
+}
+.action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.share-btn {
+  flex: 1.4;
+  background: #BA7517;
+  border-color: #BA7517;
+  color: #FAEEDA;
+}
+.share-btn:hover:not(:disabled) {
+  background: #854F0B;
+  border-color: #854F0B;
+  color: #FAEEDA;
+}
+.share-msg {
+  font-size: 13px;
+  color: #0F6E56;
+  background: #E1F5EE;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 1rem;
+  line-height: 1.5;
+  word-break: break-all;
+}
 </style>

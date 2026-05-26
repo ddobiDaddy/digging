@@ -37,7 +37,11 @@ export default defineEventHandler(async (event) => {
   } else {
     // ── 룰 기반 경로 (기본) ──────────────────────────────
     // server/utils/rules.ts 의 라이브러리를 기반으로 결정론적으로 생성.
-    const ruleResult: RuleResult = buildRecommendation(Number(age) || 7, traits || [])
+    const ruleResult: RuleResult = buildRecommendation(
+      Number(age) || 7,
+      traits || [],
+      memo || '',
+    )
     analyzeResult = ruleResult as AnalyzeResult
   }
 
